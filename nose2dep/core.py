@@ -71,51 +71,45 @@ soft_dependencies = defaultdict(set)
 default_priority = 50
 priorities = defaultdict(lambda: default_priority)
 
+class depends(object):
+    def __init__(self, *args, after=None, before=None, priority=None):
+        """Decorator to specify test dependencies
 
-def depends(func=None, after=None, before=None, priority=None):
-    """Decorator to specify test dependencies
+        :param after: The test needs to run after this/these tests. String or list of strings.
+        :param before: The test needs to run before this/these tests. String or list of strings.
+        """
+        if not (after or before or priority):
+            raise ValueError("depends decorator needs at least one argument")
 
-    :param after: The test needs to run after this/these tests. String or list of strings.
-    :param before: The test needs to run before this/these tests. String or list of strings.
-    """
-    if not (func is None or inspect.ismethod(func) or inspect.isfunction(func)):
-        raise ValueError("depends decorator can only be used on functions or methods")
-    if not (after or before or priority):
-        raise ValueError("depends decorator needs at least one argument")
+        self.after = after or []
+        self.before = before or []
+        self.priority = priority or default_priority
 
-    # This avoids some nesting in the decorator
-    # If called without func the decorator was called with optional args
-    # so we'll return a function with those args filled in.
-    if func is None:
-        return partial(depends, after=after, before=before, priority=priority)
+    def handle_dep(self, fn, prerequisites, _before=True):
+            if type(prerequisites) is not list:
+                prerequisites = [prerequisites]
 
-    if after is None:
-        after = []
-    if before is None:
-        before = []
+            prerequisite_names = [prereq.__name__ if hasattr(prereq, '__call__') else prereq for prereq in prerequisites]
 
-    def handle_dep(prerequisites, _before=True):
-        if type(prerequisites) is not list:
-            prerequisites = [prerequisites]
+            for prereq_name in prerequisite_names:
+                if fn == prereq_name:
+                    raise ValueError("Test '{}' cannot depend on itself".format(fn))
 
-        prerequisite_names = [prereq.__name__ if hasattr(prereq, '__call__') else prereq for prereq in prerequisites]
+                if _before:
+                    soft_dependencies[prereq_name].add(fn)
+                else:
+                    dependencies[fn].add(prereq_name)
 
-        for prereq_name in prerequisite_names:
-            if func.__name__ == prereq_name:
-                raise ValueError("Test '{}' cannot depend on itself".format(func.__name__))
+    def __call__(self, func):
+        if not (func is None or inspect.ismethod(func) or inspect.isfunction(func)):
+            raise ValueError("depends decorator can only be used on functions or methods")
 
-            if _before:
-                soft_dependencies[prereq_name].add(func.__name__)
-            else:
-                dependencies[func.__name__].add(prereq_name)
+        fn = func.__name__
+        self.handle_dep(fn, self.before)
+        self.handle_dep(fn, self.after, False)
+        priorities[fn] = self.priority
 
-    handle_dep(before)
-    handle_dep(after, False)
-
-    if priority:
-        priorities[func.__name__] = priority
-
-    return func
+        return func
 
 
 def merge_dicts(d1, d2):
@@ -124,15 +118,6 @@ def merge_dicts(d1, d2):
         d3[k] |= v
     return d3
 
-
-def split_on_condition(seq, condition):
-    """Split a sequence into two iterables without looping twice"""
-    l1, l2 = tee((condition(item), item) for item in seq)
-    return (i for p, i in l1 if p), (i for p, i in l2 if not p)
-
-
-def lo_prio(x):
-    return priorities[x] <= default_priority
 
 def extractTests(ts):
     tests = []
@@ -160,19 +145,17 @@ class NoseDep(Plugin):
         """
         order = []
         for g in toposort(merge_dicts(dependencies, soft_dependencies)):
-            for t in sorted(g, key=lambda x: (priorities[x], x)):
-                order.append(t)
+            order.extend(sorted(g, key=lambda x: (priorities[x], x)))
         return order
 
     def orderTests(self, all_tests):
         """Determine test ordering based on the dependency graph"""
         order = self.calculate_dependencies()
         ordered_all_tests = sorted(list(all_tests.keys()), key=lambda x: (priorities[x], x))
-        conds = [lambda t: True, lambda t: t in all_tests]
 
-        no_deps = (t for t in ordered_all_tests if t not in order and conds[0](t))
-        deps = (t for t in order if conds[1](t))
-        no_deps_l, no_deps_h = split_on_condition(no_deps, lo_prio)
+        no_deps_l = (t for t in ordered_all_tests if t not in order and priorities[t] <= default_priority)
+        no_deps_h = (t for t in ordered_all_tests if t not in order and priorities[t] > default_priority)
+        deps = (t for t in order if t in all_tests)
         return unittest.TestSuite([all_tests[t] for t in chain(no_deps_l, deps, no_deps_h)])
 
     def startTestRun(self, event):
