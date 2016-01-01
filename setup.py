@@ -9,5 +9,6 @@ setup(
         author='Rob Day',
         author_email='rkd@rkd.me.uk',
         description='The nosedep test dependency tool, ported to nose2',
-        install_requires=['nose2', 'toposort']
+        install_requires=['nose2', 'toposort'],
+        test_suite="tests",
 )

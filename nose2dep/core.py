@@ -139,13 +139,14 @@ def extractTests(ts):
     for item in ts:
         if isinstance(item, unittest.TestCase):
             tests.append(item)
-        elif isinstance(item, unittest.TestSuite):
+        else:
             tests.extend(extractTests(item))
     return tests
 
 class NoseDep(Plugin):
     """Allow specifying test dependencies with the depends decorator."""
     configSection = "nosedep"
+    commandLineSwitch = (None, 'nosedep', 'Honour dependency ordering')
 
     def __init__(self):
         super(NoseDep, self).__init__()
