@@ -111,14 +111,6 @@ class depends(object):
 
         return func
 
-
-def merge_dicts(d1, d2):
-    d3 = defaultdict(set)
-    for k, v in chain(iter(d1.items()), iter(d2.items())):
-        d3[k] |= v
-    return d3
-
-
 def extractTests(ts):
     tests = []
     for item in ts:
@@ -128,69 +120,35 @@ def extractTests(ts):
             tests.extend(extractTests(item))
     return tests
 
-class NoseDep(Plugin):
-    """Allow specifying test dependencies with the depends decorator."""
-    configSection = "nosedep"
-    commandLineSwitch = (None, 'nosedep', 'Honour dependency ordering')
-
-    def __init__(self):
-        super(NoseDep, self).__init__()
-        self.results = {}
-
+class NoseDepUtils(object):
     @staticmethod
     def calculate_dependencies():
         """Calculate test dependencies
         First do a topological sorting based on the dependencies.
         Then sort the different dependency groups based on priorities.
         """
+
+        union_of_dependencies = defaultdict(set)
+        for k, v in chain(iter(soft_dependencies.items()), iter(soft_dependencies.items())):
+            union_of_dependencies[k] |= v
+
         order = []
-        for g in toposort(merge_dicts(dependencies, soft_dependencies)):
-            order.extend(sorted(g, key=lambda x: (priorities[x], x)))
+        for group in toposort(union_of_dependencies):
+            priority_sorted_group = sorted(group, key=lambda x: (priorities[x], x))
+            order.extend(priority_sorted_group)
+
         return order
 
-    def orderTests(self, all_tests):
+    @staticmethod
+    def orderTests(all_tests):
         """Determine test ordering based on the dependency graph"""
-        order = self.calculate_dependencies()
+        order = NoseDepUtils.calculate_dependencies()
         ordered_all_tests = sorted(list(all_tests.keys()), key=lambda x: (priorities[x], x))
 
         no_deps_l = (t for t in ordered_all_tests if t not in order and priorities[t] <= default_priority)
         no_deps_h = (t for t in ordered_all_tests if t not in order and priorities[t] > default_priority)
         deps = (t for t in order if t in all_tests)
         return unittest.TestSuite([all_tests[t] for t in chain(no_deps_l, deps, no_deps_h)])
-
-    def startTestRun(self, event):
-        """Prepare and determine test ordering"""
-        tests = extractTests(event.suite)
-        all_tests = {self.test_name(test): test for test in tests}
-        event.suite = self.orderTests(all_tests)
-
-    def dependency_failed(self, test):
-        """Returns an error string if any of the dependencies failed"""
-        for d in (self.test_name(i) for i in (dependencies[test] | soft_dependencies[test])):
-            if self.results.get(d) and self.results.get(d) != 'passed':
-                return "Required test '{}' {}".format(d, self.results.get(d).upper())
-        return None
-
-    def dependency_ran(self, test):
-        """Returns an error string if any of the dependencies did not run"""
-        for d in (self.test_name(i) for i in dependencies[test]):
-            if d not in self.results:
-                return "Required test '{}' did not run (does it exist?)".format(d)
-        return None
-
-    def startTest(self, event):
-        """Skip or Error the test if the dependencies are not fulfilled"""
-        tn = self.test_name(event.test)
-
-        res = self.dependency_failed(tn)
-        if res:
-            setattr(event.test, tn, partial(event.test.skipTest, res))
-            return
-
-        res = self.dependency_ran(tn)
-        if res:
-            setattr(event.test, tn, partial(event.test.fail, res))
-            return
 
     @staticmethod
     def test_name(test):
@@ -201,6 +159,52 @@ class NoseDep(Plugin):
 
         return test_name.split('.')[-1]
 
+    @staticmethod
+    def dependency_failed(test, results):
+        """Returns an error string if any of the dependencies failed"""
+        for d in (NoseDepUtils.test_name(i) for i in (dependencies[test] | soft_dependencies[test])):
+            if results.get(d) and results.get(d) != 'passed':
+                return "Required test '{}' {}".format(d, results.get(d).upper())
+        return None
+
+    @staticmethod
+    def dependency_ran(test, results):
+        """Returns an error string if any of the dependencies did not run"""
+        for d in (NoseDepUtils.test_name(i) for i in dependencies[test]):
+            if d not in results:
+                return "Required test '{}' did not run (does it exist?)".format(d)
+        return None
+
+
+class NoseDep(Plugin):
+    """Allow specifying test dependencies with the depends decorator."""
+    configSection = "nosedep"
+    commandLineSwitch = (None, 'nosedep', 'Honour dependency ordering')
+
+    def __init__(self):
+        super(NoseDep, self).__init__()
+        self.results = {}
+
+    def startTestRun(self, event):
+        """Prepare and determine test ordering"""
+        tests = extractTests(event.suite)
+        all_tests = {NoseDepUtils.test_name(test): test for test in tests}
+        event.suite = NoseDepUtils.orderTests(all_tests)
+
+    def startTest(self, event):
+        """Skip or Error the test if the dependencies are not fulfilled"""
+        tn = NoseDepUtils.test_name(event.test)
+
+        res = NoseDepUtils.dependency_failed(tn, self.results)
+        if res:
+            setattr(event.test, tn, partial(event.test.skipTest, res))
+            return
+
+        res = NoseDepUtils.dependency_ran(tn, self.results)
+        if res:
+            setattr(event.test, tn, partial(event.test.fail, res))
+            return
+
+
     def testOutcome(self, event):
-        """The result object does not store successful results, so we have to do it"""
-        self.results[self.test_name(event.test)] = event.outcome
+        self.results[NoseDepUtils.test_name(event.test)] = event.outcome
