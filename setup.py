@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
         name='nose2dep',
-        version='0.2',
+        version='0.2.1',
         packages=['nose2dep'],
         url='',
         license='MIT',
