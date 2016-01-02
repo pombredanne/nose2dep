@@ -67,7 +67,6 @@ from nose2.events import Plugin
 from toposort import toposort
 
 dependencies = defaultdict(set)
-soft_dependencies = defaultdict(set)
 default_priority = 50
 priorities = defaultdict(lambda: default_priority)
 
@@ -96,7 +95,7 @@ class depends(object):
                     raise ValueError("Test '{}' cannot depend on itself".format(fn))
 
                 if _before:
-                    soft_dependencies[prereq_name].add(fn)
+                    dependencies[prereq_name].add(fn)
                 else:
                     dependencies[fn].add(prereq_name)
 
@@ -127,13 +126,8 @@ class NoseDepUtils(object):
         First do a topological sorting based on the dependencies.
         Then sort the different dependency groups based on priorities.
         """
-
-        union_of_dependencies = defaultdict(set)
-        for k, v in chain(iter(soft_dependencies.items()), iter(soft_dependencies.items())):
-            union_of_dependencies[k] |= v
-
         order = []
-        for group in toposort(union_of_dependencies):
+        for group in toposort(dependencies):
             priority_sorted_group = sorted(group, key=lambda x: (priorities[x], x))
             order.extend(priority_sorted_group)
 
@@ -162,17 +156,9 @@ class NoseDepUtils(object):
     @staticmethod
     def dependency_failed(test, results):
         """Returns an error string if any of the dependencies failed"""
-        for d in (NoseDepUtils.test_name(i) for i in (dependencies[test] | soft_dependencies[test])):
+        for d in (NoseDepUtils.test_name(i) for i in dependencies[test]):
             if results.get(d) and results.get(d) != 'passed':
                 return "Required test '{}' {}".format(d, results.get(d).upper())
-        return None
-
-    @staticmethod
-    def dependency_ran(test, results):
-        """Returns an error string if any of the dependencies did not run"""
-        for d in (NoseDepUtils.test_name(i) for i in dependencies[test]):
-            if d not in results:
-                return "Required test '{}' did not run (does it exist?)".format(d)
         return None
 
 
@@ -199,12 +185,6 @@ class NoseDep(Plugin):
         if res:
             setattr(event.test, tn, partial(event.test.skipTest, res))
             return
-
-        res = NoseDepUtils.dependency_ran(tn, self.results)
-        if res:
-            setattr(event.test, tn, partial(event.test.fail, res))
-            return
-
 
     def testOutcome(self, event):
         self.results[NoseDepUtils.test_name(event.test)] = event.outcome

@@ -57,8 +57,8 @@ class NoseDepPluginTester(unittest.TestCase):
             def test_impossible(self):
                 pass
 
-        # Expected behaviour: test_impossible fails, as it must run after the nonexistent test_z.
-        self.assertEqual(OrderedDict([('TC.test_impossible', 'failed')]), self.runtc(TC))
+        # Expected behaviour: test_impossible passes, even though it should run after the nonexistent test_z, as all dependencies are soft.
+        self.assertEqual(OrderedDict([('TC.test_impossible', 'passed')]), self.runtc(TC))
 
     def test_no_args_exception(self):
         # Using @depends with no arguments should cause an exception
