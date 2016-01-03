@@ -71,7 +71,7 @@ default_priority = 50
 priorities = defaultdict(lambda: default_priority)
 
 class depends(object):
-    def __init__(self, *args, after=None, before=None, priority=None):
+    def __init__(self, func=None, after=None, before=None, priority=None):
         """Decorator to specify test dependencies
 
         :param after: The test needs to run after this/these tests. String or list of strings.
@@ -79,6 +79,8 @@ class depends(object):
         """
         if not (after or before or priority):
             raise ValueError("depends decorator needs at least one argument")
+        if func:
+            raise ValueError("depends decorator should only be called with keyword arguments (after, before or priority)")
 
         self.after = after or []
         self.before = before or []

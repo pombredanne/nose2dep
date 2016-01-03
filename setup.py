@@ -2,9 +2,9 @@ from setuptools import setup
 
 setup(
         name='nose2dep',
-        version='0.2.1',
+        version='0.2.2',
         packages=['nose2dep'],
-        url='',
+        url='https://github.com/rkday/nose2dep',
         license='MIT',
         author='Rob Day',
         author_email='rkd@rkd.me.uk',
